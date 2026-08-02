@@ -10,7 +10,7 @@ GitHub Actions の Secrets を環境変数として渡して実行すること�
 
 任意の環境変数:
   GEMINI_TEXT_MODEL (既定: gemini-3.5-flash)
-  CLAUDE_MODEL (既定: claude-3-5-haiku-latest)
+  CLAUDE_MODEL (既定: claude-haiku-4-5-20251001)
   TWITTREND_URL (既定: https://twittrend.jp/)
   POST_DELAY_MIN_SECONDS / POST_DELAY_MAX_SECONDS (既定: 90 / 180)
 """
@@ -262,7 +262,7 @@ def make_character_content(
     trend_summary: str,
 ) -> tuple[str, str]:
     """Claude に投稿本文と英語の画像プロンプトを作らせる。"""
-    model = os.environ.get("CLAUDE_MODEL", "claude-3-5-haiku-latest")
+    model = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
 キャラクター設定: {character.persona}
