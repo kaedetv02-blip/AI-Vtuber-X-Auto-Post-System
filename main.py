@@ -10,7 +10,7 @@ GitHub Actions の Secrets を環境変数として渡して実行すること�
 
 任意の環境変数:
   GEMINI_TEXT_MODEL (既定: gemini-3.5-flash)
-  CLAUDE_MODEL (既定: claude-haiku-4-5-20251001)
+  CLAUDE_MODEL (既定: claude-fable-5)
   TWITTREND_URL (既定: https://twittrend.jp/)
   POST_DELAY_MIN_SECONDS / POST_DELAY_MAX_SECONDS (既定: 90 / 180)
 """
@@ -280,7 +280,7 @@ def make_character_content(
     trend_summary: str,
 ) -> tuple[str, str]:
     """Claude に投稿本文と英語の画像プロンプトを作らせる。"""
-    model = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+    model = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
 キャラクター設定: {character.persona}
@@ -294,6 +294,15 @@ def make_character_content(
   "tweet": "日本語のX投稿本文。140文字以内。トレンドへの言及は自然で控えめにし、事実不明なことを断定しない。URLは含めない。",
   "image_prompt": "投稿テーマとトレンドの雰囲気に合う、英語だけの具体的な画像生成プロンプト。人物名・固有の著作物・画面上の文字・ロゴ・透かしは含めない。"
 }}
+""".strip()
+    instructions += "\n\n" + """
+
+Non-negotiable quality rules:
+- Let the character profile control the Japanese wording, emotional reaction, and point of view.
+  Do not write a generic interchangeable influencer post.
+- The tweet must include the trend naturally and include at least one relevant hashtag.
+- The image_prompt must be detailed English only and must describe this specific character's
+  established personality, wardrobe, and mood rather than a generic anime girl.
 """.strip()
 
     try:
@@ -315,6 +324,13 @@ def make_character_content(
 
     if not tweet or not image_prompt:
         raise RuntimeError(f"Claude の {character.name} 向け応答に tweet または image_prompt がありません")
+    hashtag_body = re.sub(r"\s+", "", trend_word.lstrip("#"))
+    trend_hashtag = f"#{hashtag_body}" if hashtag_body else ""
+    if trend_hashtag and trend_hashtag not in tweet:
+        available = 140 - len(trend_hashtag) - 1
+        if available <= 0:
+            raise RuntimeError("トレンドハッシュタグが長すぎるため投稿本文に追加できません")
+        tweet = f"{tweet[:available].rstrip()} {trend_hashtag}"
     if len(tweet) > 140:
         LOGGER.warning("%s の投稿が140字を超えたため切り詰めます", character.name)
         tweet = tweet[:140].rstrip()
@@ -322,9 +338,12 @@ def make_character_content(
     # 参照画像を渡すため、同一人物らしさとテキスト無しを明示する。
     image_prompt = (
         f"{image_prompt}\n\n"
-        "Use the supplied reference image as the same character. Preserve her identity, "
-        "face, hairstyle, cat ears, outfit style, and overall anime character design. "
-        "Create one polished social-media illustration. No text, no letters, no logo, no watermark."
+        "Use the supplied reference image as the same character. Strictly preserve her identity, "
+        "facial features, eye color, hairstyle, cat ears, outfit style, color palette, and overall "
+        "anime character design. Create a vertical 3:4 social-media illustration: a close-up portrait "
+        "(head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
+        "Keep the reference-character consistency high; do not redesign her. No text, no letters, "
+        "no logo, no watermark."
     )
     return tweet, image_prompt
 
@@ -354,7 +373,12 @@ def generate_image(
                 response = gemini_client.models.generate_content(
                     model=GEMINI_IMAGE_MODEL,
                     contents=[image_prompt, reference_image],
-                    config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+                    config=types.GenerateContentConfig(
+                        response_modalities=["TEXT", "IMAGE"],
+                        response_format={
+                            "image": {"aspect_ratio": "3:4", "image_size": "1K"}
+                        },
+                    ),
                 )
                 parts = getattr(response, "parts", None) or []
                 for part in parts:
