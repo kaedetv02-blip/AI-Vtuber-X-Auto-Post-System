@@ -9,7 +9,7 @@ GitHub Actions の Secrets を環境変数として渡して実行すること�
   CHAR2_X_ACCESS_TOKEN, CHAR2_X_ACCESS_TOKEN_SECRET
 
 任意の環境変数:
-  GEMINI_TEXT_MODEL (既定: gemini-2.5-flash)
+  GEMINI_TEXT_MODEL (既定: gemini-3.5-flash)
   CLAUDE_MODEL (既定: claude-3-5-haiku-latest)
   TWITTREND_URL (既定: https://twittrend.jp/)
   POST_DELAY_MIN_SECONDS / POST_DELAY_MAX_SECONDS (既定: 90 / 180)
@@ -206,8 +206,9 @@ def fetch_trend_word() -> str:
 
 def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
     """Google Search Grounding を有効にして、トレンドの背景を簡潔に調べる。"""
-    # gemini-1.5-flash は提供終了済みのため、Google Search Grounding 対応の安定版を使う。
-    model = os.environ.get("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+    # 提供終了した Gemini 1.5 / 2.5 Flash の代わりに、
+    # Google Search Grounding 対応の安定版を使う。
+    model = os.environ.get("GEMINI_TEXT_MODEL", "gemini-3.5-flash")
     prompt = (
         f"Xで話題のトレンドワード「{trend_word}」について調べてください。\n"
         "このトレンドが何について話題になっているかを、日本語でちょうど3行、"
