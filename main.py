@@ -64,6 +64,7 @@ class Character:
     image_path: str
     x_env_prefix: str
     persona: str
+    visual_direction: str
 
 
 CHARACTERS = (
@@ -72,6 +73,12 @@ CHARACTERS = (
         name="クロエ",
         image_path=CHAR1_IMAGE_PATH,
         x_env_prefix="CHAR1",
+        visual_direction=(
+            "Alert, analytical expression with a subtle mischievous smirk; direct or side-glancing "
+            "eye contact; one gloved hand near her chin, adjusting her lab-coat collar, or presenting "
+            "a small research note. Use an off-center close-up, cool green laboratory accent light, "
+            "and a confident forward energy."
+        ),
         persona=(
             "黒髪・赤い瞳の猫耳研究者。好奇心旺盛で、少しだけクールな冗談を言う。"
             "親しみやすい日本語で、断定しすぎず、トレンドを自然に話題へ添える。"
@@ -82,6 +89,11 @@ CHARACTERS = (
         name="ルル",
         image_path=CHAR2_IMAGE_PATH,
         x_env_prefix="CHAR2",
+        visual_direction=(
+            "A soft, shy-but-confident expression with a gentle smile; gaze slightly away or upward; "
+            "one delicate hand near her cheek, ribbon, or heart-level chest gesture. Use a three-quarter "
+            "close-up, dreamy pink-purple rim light, graceful sleeve movement, and a poetic reserved mood."
+        ),
         persona=(
             "黒髪・紫の瞳の猫耳ゴシック少女。落ち着いていて可憐、少しミステリアス。"
             "やわらかな日本語で、トレンドを自然に話題へ添える。"
@@ -303,6 +315,14 @@ Non-negotiable quality rules:
 - The tweet must include the trend naturally and include at least one relevant hashtag.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
+- It must specify a visible facial expression, eye direction, and a meaningful hand gesture or pose.
+- Avoid a centered, neutral, front-facing portrait. Give the character a distinctive emotional beat,
+  body orientation, eye line, and composition that do not resemble the other character.
+""".strip()
+    instructions += f"""
+
+Character-specific visual direction (must be reflected in image_prompt):
+{character.visual_direction}
 """.strip()
 
     try:
@@ -341,8 +361,11 @@ Non-negotiable quality rules:
         "facial features, eye color, hairstyle, cat ears, outfit style, color palette, and overall "
         "anime character design. Create a vertical 3:4 social-media illustration: a close-up portrait "
         "(head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
-        "Keep the reference-character consistency high; do not redesign her. No text, no letters, "
-        "no logo, no watermark."
+        "Make her facial expression, eye direction, and one meaningful hand gesture clearly visible. "
+        f"Character-specific visual direction: {character.visual_direction} "
+        "Avoid a neutral centered front-facing pose or a generic composition; keep this character's "
+        "composition and emotional beat distinct from the other character. Keep the reference-character "
+        "consistency high; do not redesign her. No text, no letters, no logo, no watermark."
     )
     return tweet, image_prompt
 
