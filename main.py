@@ -53,6 +53,9 @@ POST_THEMES = (
     "ネタポスト（面白・日常）",
     "おやすみポスト",
 )
+MAX_TWEET_BODY_CHARACTERS = 100
+HASHTAG_PATTERN = re.compile(r"#([^\s#]+)")
+EMOJI_PATTERN = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,7 @@ class Character:
     x_env_prefix: str
     persona: str
     visual_direction: str
+    post_emoji: str
 
 
 CHARACTERS = (
@@ -73,6 +77,7 @@ CHARACTERS = (
         name="クロエ",
         image_path=CHAR1_IMAGE_PATH,
         x_env_prefix="CHAR1",
+        post_emoji="🔬",
         visual_direction=(
             "A serious, composed researcher expression with calm focused eyes and only the faintest "
             "reserved smile; direct or side-glancing eye contact; one gloved hand thoughtfully near her "
@@ -89,6 +94,7 @@ CHARACTERS = (
         name="ルル",
         image_path=CHAR2_IMAGE_PATH,
         x_env_prefix="CHAR2",
+        post_emoji="🎀",
         visual_direction=(
             "An endearingly airheaded, sweet jirai-kei girl expression: wide-eyed surprise, a dreamy "
             "soft smile, or a tiny delighted gasp; gaze drifting slightly away or upward; one delicate "
@@ -286,6 +292,59 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+def normalize_hashtag(value: str) -> str:
+    """Return one whitespace-free hashtag, or an empty string."""
+    body = re.sub(r"\s+", "", value.lstrip("#")).strip(".,!?:;。！？、")
+    return f"#{body}" if body else ""
+
+
+def add_readable_line_break(body: str) -> str:
+    """Split a long one-line post after a natural sentence boundary when possible."""
+    if "\n" in body or len(body) <= 28:
+        return body
+    for index, character in enumerate(body):
+        if character in "。！？!?" and 16 <= index < 70:
+            return f"{body[:index + 1]}\n{body[index + 1:].lstrip()}"
+    if len(body) > 52:
+        return f"{body[:52].rstrip()}\n{body[52:].lstrip()}"
+    return body
+
+
+def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
+    """Keep posts brief and readable, with all hashtags on the final line."""
+    hashtags: list[str] = []
+    for value in [trend_word, *HASHTAG_PATTERN.findall(tweet)]:
+        hashtag = normalize_hashtag(value)
+        if hashtag and hashtag not in hashtags:
+            hashtags.append(hashtag)
+    hashtags = hashtags[:3]
+    if not hashtags:
+        raise RuntimeError("投稿用ハッシュタグを作成できませんでした")
+
+    without_hashtags = HASHTAG_PATTERN.sub("", tweet)
+    lines = [
+        re.sub(r"[ \t]+", " ", line).strip()
+        for line in without_hashtags.splitlines()
+    ]
+    body = "\n".join(line for line in lines if line)
+    if not body:
+        raise RuntimeError("ハッシュタグ以外の投稿本文がありません")
+
+    body = body[:MAX_TWEET_BODY_CHARACTERS].rstrip()
+    body = add_readable_line_break(body)
+    tag_line = " ".join(hashtags)
+    available_body_length = 140 - len(tag_line) - 2
+    if available_body_length < 2:
+        raise RuntimeError("投稿用ハッシュタグが長すぎます")
+    body = body[:available_body_length].rstrip()
+
+    if not EMOJI_PATTERN.search(body):
+        emoji_space = len(character.post_emoji) + 1
+        body = f"{body[:max(1, available_body_length - emoji_space)].rstrip()} {character.post_emoji}"
+
+    return f"{body}\n\n{tag_line}"
+
+
 def make_character_content(
     claude_client: anthropic.Anthropic,
     character: Character,
@@ -314,7 +373,9 @@ def make_character_content(
 Non-negotiable quality rules:
 - Let the character profile control the Japanese wording, emotional reaction, and point of view.
   Do not write a generic interchangeable influencer post.
-- The tweet must include the trend naturally and include at least one relevant hashtag.
+- Write the tweet body as one or two short Japanese lines (about 100 characters or fewer before hashtags),
+  with one or two fitting emojis and a natural line break for easy scanning.
+- Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
 - It must specify a visible facial expression, eye direction, and a meaningful hand gesture or pose.
@@ -340,21 +401,12 @@ Character-specific visual direction (must be reflected in image_prompt):
         block.text for block in message.content if getattr(block, "type", "") == "text"
     )
     payload = extract_json_object(response_text)
-    tweet = re.sub(r"\s+", " ", str(payload.get("tweet", ""))).strip()
+    tweet = str(payload.get("tweet", "")).strip()
     image_prompt = str(payload.get("image_prompt", "")).strip()
 
     if not tweet or not image_prompt:
         raise RuntimeError(f"Claude の {character.name} 向け応答に tweet または image_prompt がありません")
-    hashtag_body = re.sub(r"\s+", "", trend_word.lstrip("#"))
-    trend_hashtag = f"#{hashtag_body}" if hashtag_body else ""
-    if trend_hashtag and trend_hashtag not in tweet:
-        available = 140 - len(trend_hashtag) - 1
-        if available <= 0:
-            raise RuntimeError("トレンドハッシュタグが長すぎるため投稿本文に追加できません")
-        tweet = f"{tweet[:available].rstrip()} {trend_hashtag}"
-    if len(tweet) > 140:
-        LOGGER.warning("%s の投稿が140字を超えたため切り詰めます", character.name)
-        tweet = tweet[:140].rstrip()
+    tweet = format_tweet(tweet, trend_word, character)
 
     # 参照画像を渡すため、同一人物らしさとテキスト無しを明示する。
     image_prompt = (
