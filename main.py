@@ -81,7 +81,7 @@ CHARACTERS = (
         post_emoji="🔬",
         trend_interests=(
             "science, medicine, technology, space, natural phenomena, animal behavior, research, "
-            "calm mysteries, puzzles, and intellectual games. Avoid political conflict, scandals, "
+            "calm mysteries, puzzles, video games, anime, and intellectual games. Avoid political conflict, scandals, "
             "tragedies, and hostile controversies."
         ),
         visual_direction=(
@@ -92,6 +92,7 @@ CHARACTERS = (
         ),
         persona=(
             "黒髪・赤い瞳の猫耳研究者。真面目で冷静、理知的で観察眼が鋭い。"
+            "意外とゲームとアニメが好きで、好きな作品の話題では少しだけ熱が入る。"
             "簡潔で落ち着いた日本語を使い、根拠のない断定を避け、研究者らしい洞察を添える。"
         ),
     ),
