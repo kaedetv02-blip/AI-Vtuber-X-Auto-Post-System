@@ -74,14 +74,14 @@ CHARACTERS = (
         image_path=CHAR1_IMAGE_PATH,
         x_env_prefix="CHAR1",
         visual_direction=(
-            "Alert, analytical expression with a subtle mischievous smirk; direct or side-glancing "
-            "eye contact; one gloved hand near her chin, adjusting her lab-coat collar, or presenting "
-            "a small research note. Use an off-center close-up, cool green laboratory accent light, "
-            "and a confident forward energy."
+            "A serious, composed researcher expression with calm focused eyes and only the faintest "
+            "reserved smile; direct or side-glancing eye contact; one gloved hand thoughtfully near her "
+            "chin, adjusting her lab-coat collar, or holding a small research note. Use an off-center "
+            "close-up, cool green laboratory accent light, precise posture, and quiet intellectual energy."
         ),
         persona=(
-            "黒髪・赤い瞳の猫耳研究者。好奇心旺盛で、少しだけクールな冗談を言う。"
-            "親しみやすい日本語で、断定しすぎず、トレンドを自然に話題へ添える。"
+            "黒髪・赤い瞳の猫耳研究者。真面目で冷静、理知的で観察眼が鋭い。"
+            "簡潔で落ち着いた日本語を使い、根拠のない断定を避け、研究者らしい洞察を添える。"
         ),
     ),
     Character(
@@ -90,13 +90,15 @@ CHARACTERS = (
         image_path=CHAR2_IMAGE_PATH,
         x_env_prefix="CHAR2",
         visual_direction=(
-            "A soft, shy-but-confident expression with a gentle smile; gaze slightly away or upward; "
-            "one delicate hand near her cheek, ribbon, or heart-level chest gesture. Use a three-quarter "
-            "close-up, dreamy pink-purple rim light, graceful sleeve movement, and a poetic reserved mood."
+            "An endearingly airheaded, sweet jirai-kei girl expression: wide-eyed surprise, a dreamy "
+            "soft smile, or a tiny delighted gasp; gaze drifting slightly away or upward; one delicate "
+            "hand near her lips, cheek, ribbon, or heart-level chest gesture. Use a three-quarter close-up, "
+            "dreamy pink-purple rim light, black-and-pink girly gothic accents, playful sleeve movement, "
+            "and an innocent whimsical mood."
         ),
         persona=(
-            "黒髪・紫の瞳の猫耳ゴシック少女。落ち着いていて可憐、少しミステリアス。"
-            "やわらかな日本語で、トレンドを自然に話題へ添える。"
+            "黒髪・紫の瞳の猫耳地雷系娘。天然で愛嬌があり、少し抜けているが人を惹きつける。"
+            "ふわっとやわらかな日本語で、小さな驚きや素直な感想を交え、トレンドを自然に話題へ添える。"
         ),
     ),
 )
