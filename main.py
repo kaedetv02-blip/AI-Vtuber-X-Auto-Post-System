@@ -455,6 +455,7 @@ Non-negotiable quality rules:
 - Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
+- Keep image_prompt under 150 words and on one JSON string line.
 - It must specify a visible facial expression, eye direction, and a meaningful hand gesture or pose.
 - Avoid a centered, neutral, front-facing portrait. Give the character a distinctive emotional beat,
   body orientation, eye line, and composition that do not resemble the other character.
@@ -465,19 +466,32 @@ Character-specific visual direction (must be reflected in image_prompt):
 {character.visual_direction}
 """.strip()
 
-    try:
-        message = claude_client.messages.create(
-            model=model,
-            max_tokens=700,
-            messages=[{"role": "user", "content": instructions}],
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Claude による {character.name} の投稿生成に失敗しました: {exc}") from exc
+    payload: dict[str, Any] | None = None
+    for attempt in range(1, 3):
+        try:
+            message = claude_client.messages.create(
+                model=model,
+                max_tokens=1000,
+                messages=[{"role": "user", "content": instructions}],
+            )
+            response_text = "".join(
+                block.text for block in message.content if getattr(block, "type", "") == "text"
+            )
+            payload = extract_json_object(response_text)
+            break
+        except Exception as exc:
+            if attempt == 2:
+                raise RuntimeError(
+                    f"Claude による {character.name} の投稿生成に失敗しました: {exc}"
+                ) from exc
+            LOGGER.warning(
+                "%s のClaude応答を解析できなかったため再試行します (%s/2)",
+                character.name,
+                attempt,
+            )
 
-    response_text = "".join(
-        block.text for block in message.content if getattr(block, "type", "") == "text"
-    )
-    payload = extract_json_object(response_text)
+    if payload is None:
+        raise RuntimeError(f"Claude の {character.name} 向け応答を取得できませんでした")
     tweet = str(payload.get("tweet", "")).strip()
     image_prompt = str(payload.get("image_prompt", "")).strip()
 
