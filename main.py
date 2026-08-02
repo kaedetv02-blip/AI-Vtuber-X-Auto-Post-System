@@ -309,7 +309,6 @@ Non-negotiable quality rules:
         message = claude_client.messages.create(
             model=model,
             max_tokens=700,
-            temperature=0.8,
             messages=[{"role": "user", "content": instructions}],
         )
     except Exception as exc:
