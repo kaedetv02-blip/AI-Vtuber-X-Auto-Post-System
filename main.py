@@ -374,9 +374,9 @@ def generate_image(
                     contents=[image_prompt, reference_image],
                     config=types.GenerateContentConfig(
                         response_modalities=["TEXT", "IMAGE"],
-                        response_format={
-                            "image": {"aspect_ratio": "3:4", "image_size": "1K"}
-                        },
+                        image_config=types.ImageConfig(
+                            aspect_ratio="3:4", image_size="1K"
+                        ),
                     ),
                 )
                 parts = getattr(response, "parts", None) or []
