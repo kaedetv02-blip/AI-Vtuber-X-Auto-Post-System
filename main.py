@@ -69,6 +69,7 @@ class Character:
     persona: str
     visual_direction: str
     post_emoji: str
+    trend_interests: str
 
 
 CHARACTERS = (
@@ -78,6 +79,11 @@ CHARACTERS = (
         image_path=CHAR1_IMAGE_PATH,
         x_env_prefix="CHAR1",
         post_emoji="🔬",
+        trend_interests=(
+            "science, medicine, technology, space, natural phenomena, animal behavior, research, "
+            "calm mysteries, puzzles, and intellectual games. Avoid political conflict, scandals, "
+            "tragedies, and hostile controversies."
+        ),
         visual_direction=(
             "A serious, composed researcher expression with calm focused eyes and only the faintest "
             "reserved smile; direct or side-glancing eye contact; one gloved hand thoughtfully near her "
@@ -95,6 +101,11 @@ CHARACTERS = (
         image_path=CHAR2_IMAGE_PATH,
         x_env_prefix="CHAR2",
         post_emoji="🎀",
+        trend_interests=(
+            "cute jirai-kei fashion, idols, music, anime, otaku culture, sweets, cafes, romance, "
+            "cute animals, and lighthearted internet culture. Avoid political conflict, scandals, "
+            "tragedies, and hostile controversies."
+        ),
         visual_direction=(
             "An endearingly airheaded, sweet jirai-kei girl expression: wide-eyed surprise, a dreamy "
             "soft smile, or a tiny delighted gasp; gaze drifting slightly away or upward; one delicate "
@@ -184,8 +195,8 @@ def clean_trend_candidate(value: str) -> str:
     return value.strip(" ・　")
 
 
-def fetch_trend_word() -> str:
-    """Twittrend の「現在」欄から上位のトレンドを一件ランダムに選ぶ。"""
+def fetch_trend_candidates() -> list[str]:
+    """Twittrend の「現在」欄からキャラクター選定用の候補を取得する。"""
     url = os.environ.get("TWITTREND_URL", "https://twittrend.jp/")
     headers = {
         "User-Agent": (
@@ -236,10 +247,9 @@ def fetch_trend_word() -> str:
     if not unique_candidates:
         raise RuntimeError("Twittrend のHTMLからトレンドワードを抽出できませんでした")
 
-    # 1位だけを毎回使わず、現在の上位10件から一件選ぶ。
-    trend_word = random.choice(unique_candidates[:10])
-    LOGGER.info("取得したトレンド: %s", trend_word)
-    return trend_word
+    trend_candidates = unique_candidates[:20]
+    LOGGER.info("取得したトレンド候補数: %s", len(trend_candidates))
+    return trend_candidates
 
 
 def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
@@ -290,6 +300,62 @@ def extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise RuntimeError("Claude の JSON 応答がオブジェクトではありません")
     return parsed
+
+
+def choose_trend_for_character(
+    claude_client: anthropic.Anthropic,
+    character: Character,
+    trend_candidates: list[str],
+    used_trends: set[str],
+) -> str | None:
+    """Pick one suitable unused trend for a character, or skip when none fits."""
+    model = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
+    available_candidates = [
+        candidate for candidate in trend_candidates if candidate not in used_trends
+    ]
+    if not available_candidates:
+        return None
+
+    prompt = f"""
+Choose an X trend for the AI VTuber below.
+
+Character: {character.name}
+Character personality: {character.persona}
+Topics this character genuinely likes: {character.trend_interests}
+Allowed trend candidates (choose only an exact item from this list):
+{json.dumps(available_candidates, ensure_ascii=False)}
+
+Return only this JSON object:
+{{"trend": "exact candidate"}}
+
+If none of the allowed candidates genuinely fit the character's interests and safe tone, return:
+{{"trend": null}}
+
+Never choose political conflict, scandal, tragedy, harassment, or a topic the character would not enjoy.
+Do not invent, rewrite, or combine candidates.
+""".strip()
+    try:
+        message = claude_client.messages.create(
+            model=model,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        raise RuntimeError(f"{character.name} のトレンド選定に失敗しました: {exc}") from exc
+
+    response_text = "".join(
+        block.text for block in message.content if getattr(block, "type", "") == "text"
+    )
+    payload = extract_json_object(response_text)
+    selected = payload.get("trend")
+    if selected is None:
+        return None
+    selected = str(selected).strip()
+    if selected in available_candidates:
+        LOGGER.info("%s が選んだトレンド: %s", character.name, selected)
+        return selected
+    LOGGER.warning("%s のトレンド選定が候補外だったためスキップします: %s", character.name, selected)
+    return None
 
 
 def normalize_hashtag(value: str) -> str:
@@ -566,10 +632,9 @@ def main() -> int:
 
     try:
         credentials = require_environment()
-        trend_word = fetch_trend_word()
+        trend_candidates = fetch_trend_candidates()
         gemini_client = genai.Client(api_key=credentials["GEMINI_API_KEY"])
         claude_client = anthropic.Anthropic(api_key=credentials["ANTHROPIC_API_KEY"])
-        trend_summary = summarize_trend(gemini_client, trend_word)
     except Exception:
         LOGGER.exception("投稿の事前準備に失敗しました")
         return 1
@@ -580,8 +645,35 @@ def main() -> int:
         LOGGER.error("投稿対象の設定が不正です: %s", exc)
         return 1
 
+    used_trends: set[str] = set()
+    trend_summaries: dict[str, str] = {}
+    character_posts: list[tuple[Character, str, str]] = []
+    selection_errors = 0
+    for character in target_characters:
+        try:
+            trend_word = choose_trend_for_character(
+                claude_client, character, trend_candidates, used_trends
+            )
+            if trend_word is None:
+                LOGGER.info("%s に合うトレンドがないため今回の投稿をスキップします", character.name)
+                continue
+            if trend_word not in trend_summaries:
+                trend_summaries[trend_word] = summarize_trend(gemini_client, trend_word)
+            character_posts.append((character, trend_word, trend_summaries[trend_word]))
+            used_trends.add(trend_word)
+        except Exception:
+            selection_errors += 1
+            LOGGER.exception("%s 向けトレンドの選定または要約に失敗しました", character.name)
+
+    if not character_posts:
+        if selection_errors:
+            LOGGER.error("投稿対象トレンドを準備できませんでした")
+            return 1
+        LOGGER.info("今回の候補には、どちらのキャラクターにも合う話題がありませんでした")
+        return 0
+
     successes = 0
-    for index, character in enumerate(target_characters):
+    for index, (character, trend_word, trend_summary) in enumerate(character_posts):
         posted = run_character(
             character,
             theme,
@@ -595,7 +687,7 @@ def main() -> int:
             successes += 1
 
         # 一人目の投稿が完了した後だけ、二人目までランダムに待機する。
-        if posted and index < len(target_characters) - 1:
+        if posted and index < len(character_posts) - 1:
             minimum = int(os.environ.get("POST_DELAY_MIN_SECONDS", "90"))
             maximum = int(os.environ.get("POST_DELAY_MAX_SECONDS", "180"))
             if minimum < 0 or maximum < minimum:
@@ -605,13 +697,13 @@ def main() -> int:
             LOGGER.info("スパム判定を避けるため、次の投稿まで%s秒待機します", delay)
             time.sleep(delay)
 
-    if successes == len(target_characters):
+    if successes == len(character_posts) and not selection_errors:
         LOGGER.info("全キャラクターの投稿が完了しました")
         return 0
     LOGGER.error(
         "%s/%s 人の投稿に失敗しました",
-        len(target_characters) - successes,
-        len(target_characters),
+        len(character_posts) - successes + selection_errors,
+        len(character_posts) + selection_errors,
     )
     return 1
 
