@@ -7,6 +7,17 @@ on:
     - cron: "30 7 * * *"
     - cron: "30 12 * * *"
   workflow_dispatch:
+    inputs:
+      force_theme:
+        description: "手動実行時だけ時間帯を上書きします（auto は通常の時間帯判定）"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - おはようポスト
+          - ネタポスト（面白・日常）
+          - おやすみポスト
 
 permissions:
   contents: read
@@ -34,6 +45,7 @@ jobs:
       - name: Generate and post
         run: python main.py
         env:
+          FORCE_THEME: ${{ inputs.force_theme }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHAR1_X_API_KEY: ${{ secrets.CHAR1_X_API_KEY }}

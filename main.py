@@ -48,6 +48,11 @@ CHAR2_IMAGE_PATH = "assets/ruru_reference.png"
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 JST = pytz.timezone("Asia/Tokyo")
 LOGGER = logging.getLogger("ai_vtuber_sns")
+POST_THEMES = (
+    "おはようポスト",
+    "ネタポスト（面白・日常）",
+    "おやすみポスト",
+)
 
 
 @dataclass(frozen=True)
@@ -115,7 +120,16 @@ def require_environment() -> dict[str, str]:
 
 
 def get_post_theme(now_jst: datetime) -> str | None:
-    """投稿対象の時間帯ならテーマを、対象外なら None を返す。"""
+    """投稿テーマを返す。FORCE_THEME があれば時間帯より優先する。"""
+    forced_theme = os.environ.get("FORCE_THEME", "").strip()
+    if forced_theme and forced_theme != "auto":
+        if forced_theme not in POST_THEMES:
+            allowed_themes = ", ".join(POST_THEMES)
+            raise ValueError(
+                f"FORCE_THEME が不正です: {forced_theme}。指定できる値: {allowed_themes}"
+            )
+        return forced_theme
+
     hour = now_jst.hour
     if 5 <= hour < 10:
         return "おはようポスト"
@@ -402,8 +416,16 @@ def run_character(
 def main() -> int:
     configure_logging()
     now_jst = datetime.now(JST)
-    theme = get_post_theme(now_jst)
     LOGGER.info("現在の日本時間: %s", now_jst.strftime("%Y-%m-%d %H:%M:%S %Z"))
+    try:
+        theme = get_post_theme(now_jst)
+    except ValueError as exc:
+        LOGGER.error("投稿テーマの設定が不正です: %s", exc)
+        return 1
+
+    forced_theme = os.environ.get("FORCE_THEME", "").strip()
+    if forced_theme and forced_theme != "auto":
+        LOGGER.warning("FORCE_THEME により時間帯判定を上書きしています: %s", theme)
     if theme is None:
         LOGGER.info("投稿対象外の時間帯です。処理を終了します")
         return 0
