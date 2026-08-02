@@ -42,8 +42,18 @@ from PIL import Image
 
 
 # GitHub Actions ではリポジトリ内に置く提供済みの参照画像を使います。
-CHAR1_IMAGE_PATH = "assets/kuroe_reference.png"
-CHAR2_IMAGE_PATH = "assets/ruru_reference.png"
+CHAR1_IMAGE_PATHS = (
+    "assets/kuroe_reference_face.png",
+    "assets/kuroe_reference_full.png",
+    "assets/kuroe_reference_side.png",
+    "assets/kuroe_reference_back.png",
+)
+CHAR2_IMAGE_PATHS = (
+    "assets/ruru_reference_face.png",
+    "assets/ruru_reference_full.png",
+    "assets/ruru_reference_side.png",
+    "assets/ruru_reference_back.png",
+)
 
 GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
 JST = pytz.timezone("Asia/Tokyo")
@@ -64,7 +74,7 @@ class Character:
 
     key: str
     name: str
-    image_path: str
+    image_paths: tuple[str, ...]
     x_env_prefix: str
     persona: str
     visual_direction: str
@@ -76,7 +86,7 @@ CHARACTERS = (
     Character(
         key="char1",
         name="クロエ",
-        image_path=CHAR1_IMAGE_PATH,
+        image_paths=CHAR1_IMAGE_PATHS,
         x_env_prefix="CHAR1",
         post_emoji="🔬",
         trend_interests=(
@@ -99,7 +109,7 @@ CHARACTERS = (
     Character(
         key="char2",
         name="ルル",
-        image_path=CHAR2_IMAGE_PATH,
+        image_paths=CHAR2_IMAGE_PATHS,
         x_env_prefix="CHAR2",
         post_emoji="🎀",
         trend_interests=(
@@ -478,7 +488,8 @@ Character-specific visual direction (must be reflected in image_prompt):
     # 参照画像を渡すため、同一人物らしさとテキスト無しを明示する。
     image_prompt = (
         f"{image_prompt}\n\n"
-        "Use the supplied reference image as the same character. Strictly preserve her identity, "
+        "Use all supplied reference images as the same character from face, full-body, side, and back views. "
+        "Strictly preserve her identity, "
         "facial features, eye color, hairstyle, cat ears, outfit style, color palette, and overall "
         "anime character design. Create a vertical 3:4 social-media illustration: a close-up portrait "
         "(head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
@@ -495,11 +506,11 @@ def generate_image(
     gemini_client: genai.Client, character: Character, image_prompt: str
 ) -> Path:
     """参照画像と英語プロンプトを Gemini 画像モデルへ同時に渡して一枚保存する。"""
-    reference_path = Path(character.image_path)
-    if not reference_path.is_file():
+    reference_paths = tuple(Path(path) for path in character.image_paths)
+    missing_paths = [path for path in reference_paths if not path.is_file()]
+    if missing_paths:
         raise RuntimeError(
-            f"{character.name} の参照画像が見つかりません: {reference_path}. "
-            "CHAR1_IMAGE_PATH / CHAR2_IMAGE_PATH を実際のパスに変更してください。"
+            f"{character.name} の参照画像が見つかりません: {', '.join(map(str, missing_paths))}"
         )
 
     output_path = Path(tempfile.gettempdir()) / f"temp_{character.key}_{uuid.uuid4().hex}.png"
@@ -510,12 +521,16 @@ def generate_image(
     max_attempts = max(1, min(max_attempts, 3))
 
     try:
-        with Image.open(reference_path) as source_image:
-            reference_image = source_image.convert("RGBA")
+        reference_images: list[Image.Image] = []
+        for reference_path in reference_paths:
+            with Image.open(reference_path) as source_image:
+                reference_images.append(source_image.convert("RGBA"))
+
+        try:
             for attempt in range(1, max_attempts + 1):
                 response = gemini_client.models.generate_content(
                     model=GEMINI_IMAGE_MODEL,
-                    contents=[image_prompt, reference_image],
+                    contents=[image_prompt, *reference_images],
                     config=types.GenerateContentConfig(
                         response_modalities=["TEXT", "IMAGE"],
                         image_config=types.ImageConfig(
@@ -536,6 +551,9 @@ def generate_image(
                         attempt,
                         max_attempts,
                     )
+        finally:
+            for reference_image in reference_images:
+                reference_image.close()
         raise RuntimeError("Gemini の画像生成レスポンスに画像データがありません")
     except Exception as exc:
         # 途中まで生成された空ファイルも残さない。
