@@ -220,7 +220,7 @@ def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                temperature=0.2,
+                thinking_config=types.ThinkingConfig(thinking_level="low"),
             ),
         )
         summary = (getattr(response, "text", None) or "").strip()
