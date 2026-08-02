@@ -122,6 +122,11 @@ def require_environment() -> dict[str, str]:
 def get_post_theme(now_jst: datetime) -> str | None:
     """投稿テーマを返す。FORCE_THEME があれば時間帯より優先する。"""
     forced_theme = os.environ.get("FORCE_THEME", "").strip()
+    forced_theme = {
+        "morning": POST_THEMES[0],
+        "fun": POST_THEMES[1],
+        "night": POST_THEMES[2],
+    }.get(forced_theme, forced_theme)
     if forced_theme and forced_theme != "auto":
         if forced_theme not in POST_THEMES:
             allowed_themes = ", ".join(POST_THEMES)
@@ -138,6 +143,19 @@ def get_post_theme(now_jst: datetime) -> str | None:
     if 20 <= hour < 24:
         return "おやすみポスト"
     return None
+
+
+def get_target_characters() -> tuple[Character, ...]:
+    """Return the characters selected for this invocation."""
+    target = os.environ.get("TARGET_CHARACTER", "all").strip().lower()
+    if target in {"", "all"}:
+        return CHARACTERS
+
+    selected = tuple(character for character in CHARACTERS if character.key == target)
+    if not selected:
+        allowed = ", ".join(["all", *(character.key for character in CHARACTERS)])
+        raise ValueError(f"TARGET_CHARACTER must be one of: {allowed}")
+    return selected
 
 
 def clean_trend_candidate(value: str) -> str:
@@ -324,20 +342,33 @@ def generate_image(
 
     output_path = Path(tempfile.gettempdir()) / f"temp_{character.key}_{uuid.uuid4().hex}.png"
     try:
+        max_attempts = int(os.environ.get("IMAGE_GENERATION_MAX_ATTEMPTS", "2"))
+    except ValueError:
+        max_attempts = 2
+    max_attempts = max(1, min(max_attempts, 3))
+
+    try:
         with Image.open(reference_path) as source_image:
             reference_image = source_image.convert("RGBA")
-            response = gemini_client.models.generate_content(
-                model=GEMINI_IMAGE_MODEL,
-                contents=[image_prompt, reference_image],
-                config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
-            )
-
-        parts = getattr(response, "parts", None) or []
-        for part in parts:
-            if getattr(part, "inline_data", None) is not None:
-                part.as_image().save(output_path)
-                LOGGER.info("%s の生成画像を保存しました: %s", character.name, output_path)
-                return output_path
+            for attempt in range(1, max_attempts + 1):
+                response = gemini_client.models.generate_content(
+                    model=GEMINI_IMAGE_MODEL,
+                    contents=[image_prompt, reference_image],
+                    config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+                )
+                parts = getattr(response, "parts", None) or []
+                for part in parts:
+                    if getattr(part, "inline_data", None) is not None:
+                        part.as_image().save(output_path)
+                        LOGGER.info("%s の生成画像を保存しました: %s", character.name, output_path)
+                        return output_path
+                if attempt < max_attempts:
+                    LOGGER.warning(
+                        "%s の画像応答に画像データがなかったため、再試行します (%s/%s)",
+                        character.name,
+                        attempt,
+                        max_attempts,
+                    )
         raise RuntimeError("Gemini の画像生成レスポンスに画像データがありません")
     except Exception as exc:
         # 途中まで生成された空ファイルも残さない。
@@ -443,9 +474,15 @@ def main() -> int:
         LOGGER.exception("投稿の事前準備に失敗しました")
         return 1
 
+    try:
+        target_characters = get_target_characters()
+    except ValueError as exc:
+        LOGGER.error("投稿対象の設定が不正です: %s", exc)
+        return 1
+
     successes = 0
-    for index, character in enumerate(CHARACTERS):
-        if run_character(
+    for index, character in enumerate(target_characters):
+        posted = run_character(
             character,
             theme,
             trend_word,
@@ -453,11 +490,12 @@ def main() -> int:
             claude_client,
             gemini_client,
             credentials,
-        ):
+        )
+        if posted:
             successes += 1
 
         # 一人目の投稿が完了した後だけ、二人目までランダムに待機する。
-        if index == 0:
+        if posted and index < len(target_characters) - 1:
             minimum = int(os.environ.get("POST_DELAY_MIN_SECONDS", "90"))
             maximum = int(os.environ.get("POST_DELAY_MAX_SECONDS", "180"))
             if minimum < 0 or maximum < minimum:
@@ -467,10 +505,14 @@ def main() -> int:
             LOGGER.info("スパム判定を避けるため、次の投稿まで%s秒待機します", delay)
             time.sleep(delay)
 
-    if successes == len(CHARACTERS):
+    if successes == len(target_characters):
         LOGGER.info("全キャラクターの投稿が完了しました")
         return 0
-    LOGGER.error("%s/%s 人の投稿に失敗しました", len(CHARACTERS) - successes, len(CHARACTERS))
+    LOGGER.error(
+        "%s/%s 人の投稿に失敗しました",
+        len(target_characters) - successes,
+        len(target_characters),
+    )
     return 1
 
 

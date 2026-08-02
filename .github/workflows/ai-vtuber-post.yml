@@ -2,22 +2,31 @@ name: AI VTuber SNS Post
 
 on:
   schedule:
-    # GitHub Actions のcronはUTC。JSTの06:30、16:30、21:30に実行する。
+    # GitHub Actions cron is UTC: 06:30 / 16:30 / 21:30 JST.
     - cron: "30 21 * * *"
     - cron: "30 7 * * *"
     - cron: "30 12 * * *"
   workflow_dispatch:
     inputs:
       force_theme:
-        description: "手動実行時だけ時間帯を上書きします（auto は通常の時間帯判定）"
+        description: "Theme to use for a manual run"
         required: false
         default: "auto"
         type: choice
         options:
           - auto
-          - おはようポスト
-          - ネタポスト（面白・日常）
-          - おやすみポスト
+          - morning
+          - fun
+          - night
+      target_character:
+        description: "Account to post when run manually"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - char1
+          - char2
 
 permissions:
   contents: read
@@ -46,6 +55,7 @@ jobs:
         run: python main.py
         env:
           FORCE_THEME: ${{ inputs.force_theme }}
+          TARGET_CHARACTER: ${{ inputs.target_character }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHAR1_X_API_KEY: ${{ secrets.CHAR1_X_API_KEY }}
