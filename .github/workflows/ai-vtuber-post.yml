@@ -1,10 +1,6 @@
 name: AI VTuber SNS Post
 
 on:
-  # 今回の実投稿テスト用。一度の実行開始を確認したら削除する。
-  push:
-    paths:
-      - ".github/workflows/ai-vtuber-post.yml"
   schedule:
     # GitHub Actions のcronはUTC。JSTの06:30、16:30、21:30に実行する。
     - cron: "30 21 * * *"
@@ -49,7 +45,7 @@ jobs:
       - name: Generate and post
         run: python main.py
         env:
-          FORCE_THEME: ${{ github.event_name == 'push' && 'おはようポスト' || inputs.force_theme }}
+          FORCE_THEME: ${{ inputs.force_theme }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHAR1_X_API_KEY: ${{ secrets.CHAR1_X_API_KEY }}
