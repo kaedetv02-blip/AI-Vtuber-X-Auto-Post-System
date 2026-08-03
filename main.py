@@ -61,6 +61,7 @@ POST_THEMES = (
 MAX_TWEET_BODY_CHARACTERS = 100
 HASHTAG_PATTERN = re.compile(r"#([^\s#]+)")
 EMOJI_PATTERN = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+KAOMOJI_PATTERN = re.compile(r"[\(（][^\n()（）]{1,24}[\)）]")
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class Character:
     visual_direction: str
     scene_variations: tuple[str, ...]
     post_emoji: str
+    post_kaomoji: str
     trend_interests: str
 
 
@@ -85,6 +87,7 @@ CHARACTERS = (
         image_paths=CHAR1_IMAGE_PATHS,
         x_env_prefix="CHAR1",
         post_emoji="🔬",
+        post_kaomoji="( ˘ᵕ˘ )",
         trend_interests=(
             "science, medicine, technology, space, natural phenomena, animal behavior, research, "
             "calm mysteries, puzzles, video games, anime, and intellectual games. Avoid political conflict, scandals, "
@@ -117,6 +120,7 @@ CHARACTERS = (
         image_paths=CHAR2_IMAGE_PATHS,
         x_env_prefix="CHAR2",
         post_emoji="🎀",
+        post_kaomoji="(՞ ᴗ ̫ ᴗ՞)",
         trend_interests=(
             "cute jirai-kei fashion, idols, music, anime, otaku culture, sweets, cafes, romance, "
             "cute animals, and lighthearted internet culture. Avoid political conflict, scandals, "
@@ -433,9 +437,14 @@ def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
         raise RuntimeError("投稿用ハッシュタグが長すぎます")
     body = body[:available_body_length].rstrip()
 
+    additions: list[str] = []
     if not EMOJI_PATTERN.search(body):
-        emoji_space = len(character.post_emoji) + 1
-        body = f"{body[:max(1, available_body_length - emoji_space)].rstrip()} {character.post_emoji}"
+        additions.append(character.post_emoji)
+    if not KAOMOJI_PATTERN.search(body):
+        additions.append(character.post_kaomoji)
+    if additions:
+        suffix = f" {' '.join(additions)}"
+        body = f"{body[:max(1, available_body_length - len(suffix))].rstrip()}{suffix}"
 
     return f"{body}\n\n{tag_line}"
 
@@ -470,7 +479,7 @@ Non-negotiable quality rules:
 - Let the character profile control the Japanese wording, emotional reaction, and point of view.
   Do not write a generic interchangeable influencer post.
 - Write the tweet body as short Japanese sentences (about 100 characters or fewer before hashtags),
-  with one or two fitting emojis. Put every completed sentence in its own paragraph, with one blank line
+  with one or two fitting emojis and one natural kaomoji. Put every completed sentence in its own paragraph, with one blank line
   after "。", "！", or "？". Never break a sentence in the middle just to make more lines.
 - Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
