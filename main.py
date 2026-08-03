@@ -390,20 +390,19 @@ def normalize_hashtag(value: str) -> str:
 
 
 def add_readable_line_break(body: str) -> str:
-    """Ensure the body is split into readable lines at a natural point when possible."""
-    if "\n" in body or len(body) <= 1:
-        return body
-    for index, character in enumerate(body):
-        if character in "。！？!?" and 4 <= index < len(body) - 1:
-            return f"{body[:index + 1]}\n{body[index + 1:].lstrip()}"
-    for index, character in enumerate(body):
-        if character in "、，," and 4 <= index < len(body) - 1:
-            return f"{body[:index + 1]}\n{body[index + 1:].lstrip()}"
-
-    # Claude normally supplies a natural line break. This fallback guarantees a
-    # two-line body even when the model returns a short, unbroken sentence.
-    split_at = max(1, min(len(body) - 1, len(body) // 2))
-    return f"{body[:split_at].rstrip()}\n{body[split_at:].lstrip()}"
+    """Put every completed sentence on its own line without splitting a sentence."""
+    lines: list[str] = []
+    for source_line in body.splitlines():
+        sentence = ""
+        for character in source_line:
+            sentence += character
+            if character in "。！？!?":
+                if sentence.strip():
+                    lines.append(sentence.strip())
+                sentence = ""
+        if sentence.strip():
+            lines.append(sentence.strip())
+    return "\n".join(lines)
 
 
 def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
@@ -470,8 +469,9 @@ def make_character_content(
 Non-negotiable quality rules:
 - Let the character profile control the Japanese wording, emotional reaction, and point of view.
   Do not write a generic interchangeable influencer post.
-- Write the tweet body as exactly two short Japanese lines (about 100 characters or fewer before hashtags),
-  with one or two fitting emojis and one natural line break. Never put the body on a single line.
+- Write the tweet body as short Japanese sentences (about 100 characters or fewer before hashtags),
+  with one or two fitting emojis. Put every completed sentence on its own line using a line break after
+  "。", "！", or "？". Never break a sentence in the middle just to make more lines.
 - Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
