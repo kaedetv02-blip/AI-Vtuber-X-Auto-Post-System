@@ -390,7 +390,7 @@ def normalize_hashtag(value: str) -> str:
 
 
 def add_readable_line_break(body: str) -> str:
-    """Put every completed sentence on its own line without splitting a sentence."""
+    """Put every completed sentence in its own readable paragraph."""
     lines: list[str] = []
     for source_line in body.splitlines():
         sentence = ""
@@ -402,7 +402,7 @@ def add_readable_line_break(body: str) -> str:
                 sentence = ""
         if sentence.strip():
             lines.append(sentence.strip())
-    return "\n".join(lines)
+    return "\n\n".join(lines)
 
 
 def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
@@ -470,8 +470,8 @@ Non-negotiable quality rules:
 - Let the character profile control the Japanese wording, emotional reaction, and point of view.
   Do not write a generic interchangeable influencer post.
 - Write the tweet body as short Japanese sentences (about 100 characters or fewer before hashtags),
-  with one or two fitting emojis. Put every completed sentence on its own line using a line break after
-  "。", "！", or "？". Never break a sentence in the middle just to make more lines.
+  with one or two fitting emojis. Put every completed sentence in its own paragraph, with one blank line
+  after "。", "！", or "？". Never break a sentence in the middle just to make more lines.
 - Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
