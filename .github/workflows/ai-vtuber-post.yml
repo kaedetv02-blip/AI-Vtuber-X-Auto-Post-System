@@ -54,7 +54,10 @@ jobs:
       - name: Generate and post
         run: python main.py
         env:
-          FORCE_THEME: ${{ inputs.force_theme }}
+          # A scheduled run is assigned its intended theme before Python starts.
+          # This avoids rejecting a post when GitHub queues a cron run outside its
+          # nominal JST time window. Manual runs retain the selected input value.
+          FORCE_THEME: ${{ github.event.schedule == '30 21 * * *' && 'morning' || github.event.schedule == '30 7 * * *' && 'fun' || github.event.schedule == '30 12 * * *' && 'night' || inputs.force_theme || 'auto' }}
           TARGET_CHARACTER: ${{ inputs.target_character }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

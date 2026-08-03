@@ -42,20 +42,15 @@ from PIL import Image
 
 
 # GitHub Actions ではリポジトリ内に置く提供済みの参照画像を使います。
-CHAR1_IMAGE_PATHS = (
-    "assets/kuroe_reference_face.png",
-    "assets/kuroe_reference_full.png",
-    "assets/kuroe_reference_side.png",
-    "assets/kuroe_reference_back.png",
-)
-CHAR2_IMAGE_PATHS = (
-    "assets/ruru_reference_face.png",
-    "assets/ruru_reference_full.png",
-    "assets/ruru_reference_side.png",
-    "assets/ruru_reference_back.png",
-)
+CHAR1_IMAGE_PATH = "assets/kuroe_reference.png"
+CHAR2_IMAGE_PATH = "assets/ruru_reference.png"
+# Each supplied image is a character design sheet containing multiple angles.  Keep
+# this as a tuple because the Gemini API accepts one or more reference images.
+CHAR1_IMAGE_PATHS = (CHAR1_IMAGE_PATH,)
+CHAR2_IMAGE_PATHS = (CHAR2_IMAGE_PATH,)
 
-GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image"
+# Nano Banana Pro: prioritize exact character identity and instruction following.
+GEMINI_IMAGE_MODEL = "gemini-3-pro-image"
 JST = pytz.timezone("Asia/Tokyo")
 LOGGER = logging.getLogger("ai_vtuber_sns")
 POST_THEMES = (
@@ -78,6 +73,7 @@ class Character:
     x_env_prefix: str
     persona: str
     visual_direction: str
+    scene_variations: tuple[str, ...]
     post_emoji: str
     trend_interests: str
 
@@ -99,6 +95,15 @@ CHARACTERS = (
             "reserved smile; direct or side-glancing eye contact; one gloved hand thoughtfully near her "
             "chin, adjusting her lab-coat collar, or holding a small research note. Use an off-center "
             "close-up, cool green laboratory accent light, precise posture, and quiet intellectual energy."
+        ),
+        scene_variations=(
+            "at a laboratory workbench, reviewing a glowing sample vial",
+            "in a quiet game room, holding a controller with a subtle competitive look",
+            "by a book-lined window, annotating a research notebook",
+            "in a planetarium corridor, looking up at a projected star map",
+            "at a cozy anime screening desk, adjusting her headphones",
+            "in a rain-speckled laboratory window reflection, holding a small specimen case",
+            "on a rooftop observatory at blue hour, checking a compact field instrument",
         ),
         persona=(
             "黒髪・赤い瞳の猫耳研究者。真面目で冷静、理知的で観察眼が鋭い。"
@@ -123,6 +128,15 @@ CHARACTERS = (
             "hand near her lips, cheek, ribbon, or heart-level chest gesture. Use a three-quarter close-up, "
             "dreamy pink-purple rim light, black-and-pink girly gothic accents, playful sleeve movement, "
             "and an innocent whimsical mood."
+        ),
+        scene_variations=(
+            "in a dreamy pink-lit cafe, cradling a tiny decorated dessert",
+            "at a bedroom vanity, gently fixing one of her ribbons",
+            "outside a cute arcade, reacting with delighted surprise to a prize plush",
+            "at an idol merchandise display, clasping her hands with sparkling excitement",
+            "under a softly glowing night-city sign, holding a heart-shaped compact",
+            "at a pastel tea table, peeking over a small handwritten note",
+            "in a flower-filled boutique corner, lifting one sleeve in a shy wave",
         ),
         persona=(
             "黒髪・紫の瞳の猫耳地雷系娘。天然で愛嬌があり、少し抜けているが人を惹きつける。"
@@ -431,6 +445,7 @@ def make_character_content(
 ) -> tuple[str, str]:
     """Claude に投稿本文と英語の画像プロンプトを作らせる。"""
     model = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
+    scene_variation = random.choice(character.scene_variations)
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
 キャラクター設定: {character.persona}
@@ -464,6 +479,9 @@ Non-negotiable quality rules:
 
 Character-specific visual direction (must be reflected in image_prompt):
 {character.visual_direction}
+
+Required scene variation for this post (must be reflected in image_prompt):
+{scene_variation}
 """.strip()
 
     payload: dict[str, Any] | None = None
@@ -502,16 +520,20 @@ Character-specific visual direction (must be reflected in image_prompt):
     # 参照画像を渡すため、同一人物らしさとテキスト無しを明示する。
     image_prompt = (
         f"{image_prompt}\n\n"
-        "Use all supplied reference images as the same character from face, full-body, side, and back views. "
-        "Strictly preserve her identity, "
-        "facial features, eye color, hairstyle, cat ears, outfit style, color palette, and overall "
-        "anime character design. Create a vertical 3:4 social-media illustration: a close-up portrait "
-        "(head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
-        "Make her facial expression, eye direction, and one meaningful hand gesture clearly visible. "
+        "The supplied reference image is this character's canonical multi-view character-design sheet. "
+        "Use it as the single source of truth: preserve the exact face, eye color, hairstyle, cat ears, "
+        "body proportions, signature outfit, accessories, color palette, and polished anime line-art and "
+        "soft-shaded illustration style. Do not redesign, age up, or substitute the character. "
+        "Create one finished scene, never a turnaround sheet, collage, split panel, reference board, or "
+        "white-background copy of the reference. Create a vertical 3:4 social-media illustration: a close-up "
+        "portrait (head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
+        "Make the facial expression, eye direction, and one meaningful hand gesture clearly visible. "
+        f"Required scene variation: {scene_variation}. "
         f"Character-specific visual direction: {character.visual_direction} "
-        "Avoid a neutral centered front-facing pose or a generic composition; keep this character's "
-        "composition and emotional beat distinct from the other character. Keep the reference-character "
-        "consistency high; do not redesign her. No text, no letters, no logo, no watermark."
+        "Vary the setting, prop, camera distance, emotional beat, and pose from prior posts while preserving "
+        "the same character-design and art-style identity. Avoid a neutral centered front-facing pose or a "
+        "generic composition; keep this character's composition distinct from the other character. "
+        "No text, letters, logos, watermarks, or extra characters."
     )
     return tweet, image_prompt
 
