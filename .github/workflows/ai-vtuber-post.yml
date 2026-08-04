@@ -60,7 +60,7 @@ jobs:
           FORCE_THEME: ${{ github.event.schedule == '30 21 * * *' && 'morning' || github.event.schedule == '30 7 * * *' && 'fun' || github.event.schedule == '30 12 * * *' && 'night' || inputs.force_theme || 'auto' }}
           TARGET_CHARACTER: ${{ inputs.target_character }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CHAR1_X_API_KEY: ${{ secrets.CHAR1_X_API_KEY }}
           CHAR1_X_API_SECRET: ${{ secrets.CHAR1_X_API_SECRET }}
           CHAR1_X_ACCESS_TOKEN: ${{ secrets.CHAR1_X_ACCESS_TOKEN }}

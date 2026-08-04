@@ -2,7 +2,7 @@
 
 GitHub Actions の Secrets を環境変数として渡して実行することを想定しています。
 必要な環境変数:
-  GEMINI_API_KEY, ANTHROPIC_API_KEY,
+  GEMINI_API_KEY, OPENAI_API_KEY,
   CHAR1_X_API_KEY, CHAR1_X_API_SECRET,
   CHAR1_X_ACCESS_TOKEN, CHAR1_X_ACCESS_TOKEN_SECRET,
   CHAR2_X_API_KEY, CHAR2_X_API_SECRET,
@@ -10,7 +10,7 @@ GitHub Actions の Secrets を環境変数として渡して実行すること�
 
 任意の環境変数:
   GEMINI_TEXT_MODEL (既定: gemini-3.5-flash)
-  CLAUDE_MODEL (既定: claude-fable-5)
+  OPENAI_MODEL (既定: gpt-5.6-luna)
   TWITTREND_URL (既定: https://twittrend.jp/)
   POST_DELAY_MIN_SECONDS / POST_DELAY_MAX_SECONDS (既定: 90 / 180)
 """
@@ -31,7 +31,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import pytz
 import requests
 import tweepy
@@ -39,6 +38,7 @@ from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
 from PIL import Image
+from openai import OpenAI
 
 
 # GitHub Actions ではリポジトリ内に置く提供済みの参照画像を使います。
@@ -51,6 +51,7 @@ CHAR2_IMAGE_PATHS = (CHAR2_IMAGE_PATH,)
 
 # Nano Banana Pro: prioritize exact character identity and instruction following.
 GEMINI_IMAGE_MODEL = "gemini-3-pro-image"
+OPENAI_MODEL = "gpt-5.6-luna"
 JST = pytz.timezone("Asia/Tokyo")
 LOGGER = logging.getLogger("ai_vtuber_sns")
 POST_THEMES = (
@@ -162,7 +163,7 @@ def require_environment() -> dict[str, str]:
     """必要なシークレットを検証して返す。値そのものはログに出さない。"""
     names = (
         "GEMINI_API_KEY",
-        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
         "CHAR1_X_API_KEY",
         "CHAR1_X_API_SECRET",
         "CHAR1_X_ACCESS_TOKEN",
@@ -311,7 +312,7 @@ def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
-    """Claude の応答から、コードフェンスの有無を問わず JSON オブジェクトを取り出す。"""
+    """モデル応答から、コードフェンスの有無を問わず JSON オブジェクトを取り出す。"""
     stripped = text.strip()
     stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
     stripped = re.sub(r"\s*```$", "", stripped)
@@ -320,25 +321,74 @@ def extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", stripped, flags=re.DOTALL)
         if not match:
-            raise RuntimeError("Claude の応答に JSON オブジェクトがありません")
+            raise RuntimeError("モデル応答に JSON オブジェクトがありません")
         try:
             parsed = json.loads(match.group(0))
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Claude の JSON を解析できません: {exc}") from exc
+            raise RuntimeError(f"モデル応答の JSON を解析できません: {exc}") from exc
 
     if not isinstance(parsed, dict):
-        raise RuntimeError("Claude の JSON 応答がオブジェクトではありません")
+        raise RuntimeError("モデル応答の JSON がオブジェクトではありません")
     return parsed
 
 
+def request_openai_json(
+    openai_client: OpenAI,
+    *,
+    prompt: str,
+    schema_name: str,
+    schema: dict[str, Any],
+    max_output_tokens: int,
+) -> dict[str, Any]:
+    """Request reliable JSON from GPT-5.6 Luna through the Responses API."""
+    model = os.environ.get("OPENAI_MODEL", OPENAI_MODEL)
+    reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT", "low")
+    try:
+        response = openai_client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a reliable social-media content editor. "
+                        "Follow the requested JSON schema exactly."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            reasoning={"effort": reasoning_effort},
+            max_output_tokens=max_output_tokens,
+            text={
+                "verbosity": "low",
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+        )
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI Responses API request failed: {exc}") from exc
+
+    if getattr(response, "status", None) == "incomplete":
+        details = getattr(response, "incomplete_details", None)
+        reason = getattr(details, "reason", "unknown")
+        raise RuntimeError(f"OpenAI response was incomplete: {reason}")
+
+    response_text = (getattr(response, "output_text", None) or "").strip()
+    if not response_text:
+        raise RuntimeError("OpenAI returned no structured output")
+    return extract_json_object(response_text)
+
+
 def choose_trend_for_character(
-    claude_client: anthropic.Anthropic,
+    openai_client: OpenAI,
     character: Character,
     trend_candidates: list[str],
     used_trends: set[str],
 ) -> str | None:
     """Pick one suitable unused trend for a character, or skip when none fits."""
-    model = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
     available_candidates = [
         candidate for candidate in trend_candidates if candidate not in used_trends
     ]
@@ -354,30 +404,35 @@ Topics this character genuinely likes: {character.trend_interests}
 Allowed trend candidates (choose only an exact item from this list):
 {json.dumps(available_candidates, ensure_ascii=False)}
 
-Return only this JSON object:
-{{"trend": "exact candidate"}}
-
-If none of the allowed candidates genuinely fit the character's interests and safe tone, return:
-{{"trend": null}}
+Return the selected exact candidate in the `trend` field.
+If none of the allowed candidates genuinely fit the character's interests and safe tone, return an empty string.
 
 Never choose political conflict, scandal, tragedy, harassment, or a topic the character would not enjoy.
 Do not invent, rewrite, or combine candidates.
 """.strip()
     try:
-        message = claude_client.messages.create(
-            model=model,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+        payload = request_openai_json(
+            openai_client,
+            prompt=prompt,
+            schema_name="trend_selection",
+            schema={
+                "type": "object",
+                "properties": {
+                    "trend": {
+                        "type": "string",
+                        "enum": ["", *available_candidates],
+                    }
+                },
+                "required": ["trend"],
+                "additionalProperties": False,
+            },
+            max_output_tokens=200,
         )
     except Exception as exc:
-        raise RuntimeError(f"{character.name} のトレンド選定に失敗しました: {exc}") from exc
+        raise RuntimeError(f"{character.name} のGPTトレンド選定に失敗しました: {exc}") from exc
 
-    response_text = "".join(
-        block.text for block in message.content if getattr(block, "type", "") == "text"
-    )
-    payload = extract_json_object(response_text)
     selected = payload.get("trend")
-    if selected is None:
+    if not selected:
         return None
     selected = str(selected).strip()
     if selected in available_candidates:
@@ -450,14 +505,13 @@ def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
 
 
 def make_character_content(
-    claude_client: anthropic.Anthropic,
+    openai_client: OpenAI,
     character: Character,
     theme: str,
     trend_word: str,
     trend_summary: str,
 ) -> tuple[str, str]:
-    """Claude に投稿本文と英語の画像プロンプトを作らせる。"""
-    model = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
+    """GPT-5.6 Luna に投稿本文と英語の画像プロンプトを作らせる。"""
     scene_variation = random.choice(character.scene_variations)
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
@@ -501,34 +555,40 @@ Required scene variation for this post (must be reflected in image_prompt):
     payload: dict[str, Any] | None = None
     for attempt in range(1, 3):
         try:
-            message = claude_client.messages.create(
-                model=model,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": instructions}],
+            payload = request_openai_json(
+                openai_client,
+                prompt=instructions,
+                schema_name="vtuber_post_content",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "tweet": {"type": "string"},
+                        "image_prompt": {"type": "string"},
+                    },
+                    "required": ["tweet", "image_prompt"],
+                    "additionalProperties": False,
+                },
+                max_output_tokens=1000,
             )
-            response_text = "".join(
-                block.text for block in message.content if getattr(block, "type", "") == "text"
-            )
-            payload = extract_json_object(response_text)
             break
         except Exception as exc:
             if attempt == 2:
                 raise RuntimeError(
-                    f"Claude による {character.name} の投稿生成に失敗しました: {exc}"
+                    f"GPT-5.6 Luna による {character.name} の投稿生成に失敗しました: {exc}"
                 ) from exc
             LOGGER.warning(
-                "%s のClaude応答を解析できなかったため再試行します (%s/2)",
+                "%s のGPT応答を取得できなかったため再試行します (%s/2)",
                 character.name,
                 attempt,
             )
 
     if payload is None:
-        raise RuntimeError(f"Claude の {character.name} 向け応答を取得できませんでした")
+        raise RuntimeError(f"GPT-5.6 Luna の {character.name} 向け応答を取得できませんでした")
     tweet = str(payload.get("tweet", "")).strip()
     image_prompt = str(payload.get("image_prompt", "")).strip()
 
     if not tweet or not image_prompt:
-        raise RuntimeError(f"Claude の {character.name} 向け応答に tweet または image_prompt がありません")
+        raise RuntimeError(f"GPT-5.6 Luna の {character.name} 向け応答に tweet または image_prompt がありません")
     tweet = format_tweet(tweet, trend_word, character)
 
     # 参照画像を渡すため、同一人物らしさとテキスト無しを明示する。
@@ -653,7 +713,7 @@ def run_character(
     theme: str,
     trend_word: str,
     trend_summary: str,
-    claude_client: anthropic.Anthropic,
+    openai_client: OpenAI,
     gemini_client: genai.Client,
     credentials: dict[str, str],
 ) -> bool:
@@ -662,7 +722,7 @@ def run_character(
     try:
         media_api, post_client = create_x_clients(credentials, character)
         tweet, image_prompt = make_character_content(
-            claude_client, character, theme, trend_word, trend_summary
+            openai_client, character, theme, trend_word, trend_summary
         )
         LOGGER.info("%s の投稿本文を生成しました: %s", character.name, tweet)
         image_path = generate_image(gemini_client, character, image_prompt)
@@ -703,7 +763,7 @@ def main() -> int:
         credentials = require_environment()
         trend_candidates = fetch_trend_candidates()
         gemini_client = genai.Client(api_key=credentials["GEMINI_API_KEY"])
-        claude_client = anthropic.Anthropic(api_key=credentials["ANTHROPIC_API_KEY"])
+        openai_client = OpenAI(api_key=credentials["OPENAI_API_KEY"])
     except Exception:
         LOGGER.exception("投稿の事前準備に失敗しました")
         return 1
@@ -721,7 +781,7 @@ def main() -> int:
     for character in target_characters:
         try:
             trend_word = choose_trend_for_character(
-                claude_client, character, trend_candidates, used_trends
+                openai_client, character, trend_candidates, used_trends
             )
             if trend_word is None:
                 LOGGER.info("%s に合うトレンドがないため今回の投稿をスキップします", character.name)
@@ -748,7 +808,7 @@ def main() -> int:
             theme,
             trend_word,
             trend_summary,
-            claude_client,
+            openai_client,
             gemini_client,
             credentials,
         )
