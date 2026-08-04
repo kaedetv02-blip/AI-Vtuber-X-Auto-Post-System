@@ -219,6 +219,17 @@ def get_target_characters() -> tuple[Character, ...]:
     return selected
 
 
+def get_characters_for_theme(
+    theme: str, selected_characters: tuple[Character, ...]
+) -> tuple[Character, ...]:
+    """Apply theme-specific posting assignments after manual targeting."""
+    if theme == POST_THEMES[1]:
+        return tuple(
+            character for character in selected_characters if character.key == "char2"
+        )
+    return selected_characters
+
+
 def clean_trend_candidate(value: str) -> str:
     value = re.sub(r"\s+", " ", value).strip()
     value = re.sub(r"^\d+\s*[.．、:]\s*", "", value)
@@ -773,6 +784,12 @@ def main() -> int:
     except ValueError as exc:
         LOGGER.error("投稿対象の設定が不正です: %s", exc)
         return 1
+    target_characters = get_characters_for_theme(theme, target_characters)
+    if theme == POST_THEMES[1]:
+        LOGGER.info("ネタポストはルルのみを投稿対象にします")
+    if not target_characters:
+        LOGGER.info("今回のテーマでは選択されたキャラクターは投稿対象外です")
+        return 0
 
     used_trends: set[str] = set()
     trend_summaries: dict[str, str] = {}
