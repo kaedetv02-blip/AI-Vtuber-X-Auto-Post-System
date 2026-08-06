@@ -293,6 +293,26 @@ def fetch_trend_candidates() -> list[str]:
     return trend_candidates
 
 
+def gemini_retry_delay(attempt: int) -> float:
+    """Return an exponential-backoff delay for temporary Gemini errors."""
+    try:
+        base_delay = float(os.environ.get("GEMINI_RETRY_BASE_SECONDS", "5"))
+    except ValueError:
+        base_delay = 5.0
+    base_delay = max(1.0, min(base_delay, 30.0))
+    return min(60.0, base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1.5))
+
+
+def is_retryable_gemini_error(error: Exception) -> bool:
+    """Identify transient service and capacity errors which are safe to retry."""
+    error_text = str(error).upper()
+    retry_markers = (
+        "429", "500", "502", "503", "504", "RESOURCE_EXHAUSTED",
+        "UNAVAILABLE", "INTERNAL", "HIGH DEMAND", "TIMEOUT",
+    )
+    return any(marker in error_text for marker in retry_markers)
+
+
 def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
     """Google Search Grounding を有効にして、トレンドの背景を簡潔に調べる。"""
     # 提供終了した Gemini 1.5 / 2.5 Flash の代わりに、
@@ -304,22 +324,38 @@ def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
         "各行は簡潔に要約してください。未確認情報は断定しないでください。"
     )
     try:
-        response = gemini_client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                thinking_config=types.ThinkingConfig(thinking_level="low"),
-            ),
-        )
-        summary = (getattr(response, "text", None) or "").strip()
-    except Exception as exc:
-        raise RuntimeError(f"Gemini によるトレンド情報収集に失敗しました: {exc}") from exc
+        max_attempts = int(os.environ.get("GEMINI_TEXT_MAX_ATTEMPTS", "3"))
+    except ValueError:
+        max_attempts = 3
+    max_attempts = max(1, min(max_attempts, 4))
 
-    if not summary:
-        raise RuntimeError("Gemini からトレンド要約テキストが返りませんでした")
-    LOGGER.info("Gemini のトレンド要約を取得しました")
-    return summary
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    thinking_config=types.ThinkingConfig(thinking_level="low"),
+                ),
+            )
+            summary = (getattr(response, "text", None) or "").strip()
+            if summary:
+                LOGGER.info("Gemini のトレンド要約を取得しました")
+                return summary
+            raise RuntimeError("Gemini からトレンド要約テキストが返りませんでした")
+        except Exception as exc:
+            if is_retryable_gemini_error(exc) and attempt < max_attempts:
+                delay = gemini_retry_delay(attempt)
+                LOGGER.warning(
+                    "Gemini のトレンド要約が一時エラーです。%.1f秒後に再試行します (%s/%s): %s",
+                    delay, attempt, max_attempts, exc,
+                )
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"Gemini によるトレンド情報収集に失敗しました: {exc}") from exc
+
+    raise RuntimeError("Gemini のトレンド要約を取得できませんでした")
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -636,10 +672,10 @@ def generate_image(
 
     output_path = Path(tempfile.gettempdir()) / f"temp_{character.key}_{uuid.uuid4().hex}.png"
     try:
-        max_attempts = int(os.environ.get("IMAGE_GENERATION_MAX_ATTEMPTS", "2"))
+        max_attempts = int(os.environ.get("IMAGE_GENERATION_MAX_ATTEMPTS", "3"))
     except ValueError:
-        max_attempts = 2
-    max_attempts = max(1, min(max_attempts, 3))
+        max_attempts = 3
+    max_attempts = max(1, min(max_attempts, 4))
 
     try:
         reference_images: list[Image.Image] = []
@@ -649,16 +685,27 @@ def generate_image(
 
         try:
             for attempt in range(1, max_attempts + 1):
-                response = gemini_client.models.generate_content(
-                    model=GEMINI_IMAGE_MODEL,
-                    contents=[image_prompt, *reference_images],
-                    config=types.GenerateContentConfig(
-                        response_modalities=["TEXT", "IMAGE"],
-                        image_config=types.ImageConfig(
-                            aspect_ratio="3:4", image_size="1K"
+                try:
+                    response = gemini_client.models.generate_content(
+                        model=GEMINI_IMAGE_MODEL,
+                        contents=[image_prompt, *reference_images],
+                        config=types.GenerateContentConfig(
+                            response_modalities=["TEXT", "IMAGE"],
+                            image_config=types.ImageConfig(
+                                aspect_ratio="3:4", image_size="1K"
+                            ),
                         ),
-                    ),
-                )
+                    )
+                except Exception as exc:
+                    if not is_retryable_gemini_error(exc) or attempt == max_attempts:
+                        raise
+                    delay = gemini_retry_delay(attempt)
+                    LOGGER.warning(
+                        "%s の画像生成が一時エラーです。%.1f秒後に再試行します (%s/%s): %s",
+                        character.name, delay, attempt, max_attempts, exc,
+                    )
+                    time.sleep(delay)
+                    continue
                 parts = getattr(response, "parts", None) or []
                 for part in parts:
                     if getattr(part, "inline_data", None) is not None:
