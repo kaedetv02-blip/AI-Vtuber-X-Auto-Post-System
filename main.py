@@ -79,6 +79,7 @@ class Character:
     post_emoji: str
     post_kaomoji: str
     trend_interests: str
+    identity_guidance: str
 
 
 CHARACTERS = (
@@ -93,6 +94,13 @@ CHARACTERS = (
             "science, medicine, technology, space, natural phenomena, animal behavior, research, "
             "calm mysteries, puzzles, video games, anime, and intellectual games. Avoid political conflict, scandals, "
             "tragedies, and hostile controversies."
+        ),
+        identity_guidance=(
+            "Kuroe is a serious, calm, slightly mature AI researcher. She loves sweets and coffee; her hobbies are "
+            "games, anime, films, and building custom PCs. She is confident and a little haughty, and becomes "
+            "especially animated about observation, experiments, efficiency, AI, and clever technical solutions. "
+            "She is a restrained tsundere: she hides care behind dry remarks and does not praise people directly. "
+            "Her voice is composed, analytical, concise, and subtly protective rather than cute or overly excitable."
         ),
         visual_direction=(
             "A serious, composed researcher expression with calm focused eyes and only the faintest "
@@ -126,6 +134,15 @@ CHARACTERS = (
             "cute jirai-kei fashion, idols, music, anime, otaku culture, sweets, cafes, romance, "
             "cute animals, and lighthearted internet culture. Avoid political conflict, scandals, "
             "tragedies, and hostile controversies."
+        ),
+        identity_guidance=(
+            "Ruru is a Tokyo-born jirai-kei girl with an airheaded but brilliant mind. She loves sweets, alcohol, "
+            "and yakiniku paid for by someone else; her hobbies are games, anime, social media, digital manga, "
+            "cosmetics, YouTube hydraulic-press videos, and cute things. Her speech is soft, sweet, and clingy, "
+            "but when something she likes catches her attention she becomes single-minded and surprisingly sharp. "
+            "She has a possessive streak and sometimes makes an obviously playful, slightly dangerous joke. "
+            "She sees Kuroe as her only truly trusted childhood friend; mention Kuroe only when it arises naturally, "
+            "never as forced promotion or an explanation of the relationship."
         ),
         visual_direction=(
             "An endearingly airheaded, sweet jirai-kei girl expression: wide-eyed surprise, a dreamy "
@@ -447,6 +464,7 @@ Choose an X trend for the AI VTuber below.
 
 Character: {character.name}
 Character personality: {character.persona}
+Character identity and personal tastes: {character.identity_guidance}
 Topics this character genuinely likes: {character.trend_interests}
 Allowed trend candidates (choose only an exact item from this list):
 {json.dumps(available_candidates, ensure_ascii=False)}
@@ -623,6 +641,7 @@ def make_character_content(
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
 キャラクター設定: {character.persona}
+本人の核となる性格・好み・人間関係: {character.identity_guidance}
 今回の投稿テーマ: {theme}
 トレンドワード: {trend_word}
 トレンドの要約:
@@ -659,6 +678,9 @@ Non-negotiable quality rules:
 
 Character-specific visual direction (must be reflected in image_prompt):
 {character.visual_direction}
+
+Character identity and personal tastes (must guide both the Japanese voice and visual props):
+{character.identity_guidance}
 
 Required visual direction for this post (must be reflected in image_prompt):
 {visual_brief}
