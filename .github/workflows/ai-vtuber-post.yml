@@ -2,8 +2,9 @@ name: AI VTuber SNS Post
 
 on:
   schedule:
-    # GitHub Actions cron is UTC: 06:30 / 16:30 / 21:30 JST.
+    # 06:30 / 12:30 / 16:30 / 21:30 JST (GitHub Actions cron is UTC).
     - cron: "30 21 * * *"
+    - cron: "30 3 * * *"
     - cron: "30 7 * * *"
     - cron: "30 12 * * *"
   workflow_dispatch:
@@ -16,6 +17,7 @@ on:
         options:
           - auto
           - morning
+          - lunch
           - fun
           - night
       target_character:
@@ -59,7 +61,7 @@ jobs:
           # A scheduled run is assigned its intended theme before Python starts.
           # This avoids rejecting a post when GitHub queues a cron run outside its
           # nominal JST time window. Manual runs retain the selected input value.
-          FORCE_THEME: ${{ github.event.schedule == '30 21 * * *' && 'morning' || github.event.schedule == '30 7 * * *' && 'fun' || github.event.schedule == '30 12 * * *' && 'night' || inputs.force_theme || 'auto' }}
+          FORCE_THEME: ${{ github.event.schedule == '30 21 * * *' && 'morning' || github.event.schedule == '30 3 * * *' && 'lunch' || github.event.schedule == '30 7 * * *' && 'fun' || github.event.schedule == '30 12 * * *' && 'night' || inputs.force_theme || 'auto' }}
           TARGET_CHARACTER: ${{ inputs.target_character }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

@@ -56,6 +56,7 @@ JST = pytz.timezone("Asia/Tokyo")
 LOGGER = logging.getLogger("ai_vtuber_sns")
 POST_THEMES = (
     "おはようポスト",
+    "お昼ポスト",
     "ネタポスト（面白・日常）",
     "おやすみポスト",
 )
@@ -202,8 +203,9 @@ def get_post_theme(now_jst: datetime) -> str | None:
     forced_theme = os.environ.get("FORCE_THEME", "").strip()
     forced_theme = {
         "morning": POST_THEMES[0],
-        "fun": POST_THEMES[1],
-        "night": POST_THEMES[2],
+        "lunch": POST_THEMES[1],
+        "fun": POST_THEMES[2],
+        "night": POST_THEMES[3],
     }.get(forced_theme, forced_theme)
     if forced_theme and forced_theme != "auto":
         if forced_theme not in POST_THEMES:
@@ -216,6 +218,8 @@ def get_post_theme(now_jst: datetime) -> str | None:
     hour = now_jst.hour
     if 5 <= hour < 10:
         return "おはようポスト"
+    if 11 <= hour < 14:
+        return "お昼ポスト"
     if 15 <= hour < 18:
         return "ネタポスト（面白・日常）"
     if 20 <= hour < 24:
@@ -240,7 +244,7 @@ def get_characters_for_theme(
     theme: str, selected_characters: tuple[Character, ...]
 ) -> tuple[Character, ...]:
     """Apply theme-specific posting assignments after manual targeting."""
-    if theme == POST_THEMES[1]:
+    if theme == POST_THEMES[2]:
         return tuple(
             character for character in selected_characters if character.key == "char2"
         )
@@ -579,6 +583,11 @@ def build_visual_brief(
             "and a just-starting-the-day atmosphere"
         )
     elif theme == POST_THEMES[1]:
+        time_of_day = (
+            "midday in Japan: clear natural daylight or a cozy lunch-break interior, "
+            "a relaxed reset between morning and afternoon, and appetizing or refreshing color accents"
+        )
+    elif theme == POST_THEMES[2]:
         time_of_day = (
             "late afternoon in Japan: warm lively daylight, energetic everyday surroundings, "
             "and a playful after-school atmosphere"
@@ -919,7 +928,7 @@ def main() -> int:
         LOGGER.error("投稿対象の設定が不正です: %s", exc)
         return 1
     target_characters = get_characters_for_theme(theme, target_characters)
-    if theme == POST_THEMES[1]:
+    if theme == POST_THEMES[2]:
         LOGGER.info("ネタポストはルルのみを投稿対象にします")
     if not target_characters:
         LOGGER.info("今回のテーマでは選択されたキャラクターは投稿対象外です")
