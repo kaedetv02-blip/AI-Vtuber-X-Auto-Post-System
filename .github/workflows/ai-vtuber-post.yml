@@ -38,7 +38,9 @@ concurrency:
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Nano Banana Pro can briefly return capacity errors; leave room for the
+    # retry policy instead of cancelling a valid queued post.
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,6 +63,9 @@ jobs:
           TARGET_CHARACTER: ${{ inputs.target_character }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_TEXT_MAX_ATTEMPTS: "4"
+          IMAGE_GENERATION_MAX_ATTEMPTS: "4"
+          GEMINI_RETRY_BASE_SECONDS: "6"
           CHAR1_X_API_KEY: ${{ secrets.CHAR1_X_API_KEY }}
           CHAR1_X_API_SECRET: ${{ secrets.CHAR1_X_API_SECRET }}
           CHAR1_X_ACCESS_TOKEN: ${{ secrets.CHAR1_X_ACCESS_TOKEN }}

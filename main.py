@@ -98,15 +98,15 @@ CHARACTERS = (
             "A serious, composed researcher expression with calm focused eyes and only the faintest "
             "reserved smile; direct or side-glancing eye contact; one gloved hand thoughtfully near her "
             "chin, adjusting her lab-coat collar, or holding a small research note. Use an off-center "
-            "close-up, cool green laboratory accent light, precise posture, and quiet intellectual energy."
+            "close-up, cool green accents or natural environmental light, precise posture, and quiet intellectual energy."
         ),
         scene_variations=(
-            "at a laboratory workbench, reviewing a glowing sample vial",
+            "at a quiet museum exhibit, studying an interactive display",
             "in a quiet game room, holding a controller with a subtle competitive look",
             "by a book-lined window, annotating a research notebook",
             "in a planetarium corridor, looking up at a projected star map",
             "at a cozy anime screening desk, adjusting her headphones",
-            "in a rain-speckled laboratory window reflection, holding a small specimen case",
+            "in a rain-speckled bookshop window reflection, holding a small specimen case",
             "on a rooftop observatory at blue hour, checking a compact field instrument",
         ),
         persona=(
@@ -324,9 +324,9 @@ def summarize_trend(gemini_client: genai.Client, trend_word: str) -> str:
         "各行は簡潔に要約してください。未確認情報は断定しないでください。"
     )
     try:
-        max_attempts = int(os.environ.get("GEMINI_TEXT_MAX_ATTEMPTS", "3"))
+        max_attempts = int(os.environ.get("GEMINI_TEXT_MAX_ATTEMPTS", "4"))
     except ValueError:
-        max_attempts = 3
+        max_attempts = 4
     max_attempts = max(1, min(max_attempts, 4))
 
     for attempt in range(1, max_attempts + 1):
@@ -551,6 +551,66 @@ def format_tweet(tweet: str, trend_word: str, character: Character) -> str:
     return f"{body}\n\n{tag_line}"
 
 
+def build_visual_brief(
+    character: Character, theme: str, trend_word: str, trend_summary: str
+) -> str:
+    """Create a high-variation, time-aware art direction for a single post."""
+    if theme == POST_THEMES[0]:
+        time_of_day = (
+            "early morning in Japan: soft sunrise light, fresh air, gentle long shadows, "
+            "and a just-starting-the-day atmosphere"
+        )
+    elif theme == POST_THEMES[1]:
+        time_of_day = (
+            "late afternoon in Japan: warm lively daylight, energetic everyday surroundings, "
+            "and a playful after-school atmosphere"
+        )
+    else:
+        time_of_day = (
+            "late night in Japan: moonlit or warm practical lighting, a calm winding-down atmosphere, "
+            "and richer shadow contrast"
+        )
+
+    expressions = (
+        "a thoughtful raised eyebrow and a restrained smile",
+        "bright curiosity with widened eyes",
+        "a softly amused smile as if sharing a private discovery",
+        "a moment of surprised delight",
+        "quiet concentration with a warm, genuine glance",
+        "a playful, confident smirk",
+    )
+    poses = (
+        "leaning slightly into the frame with one hand presenting a relevant object",
+        "turning at the waist while looking back over one shoulder",
+        "resting one hand near the cheek and using the other for a small expressive gesture",
+        "mid-step with sleeves, hair, or accessories subtly in motion",
+        "holding a personally meaningful prop close to the chest",
+        "pointing gently toward a visual motif in the background",
+    )
+    camera_angles = (
+        "a low three-quarter Dutch angle",
+        "a high-angle intimate close-up with a gentle tilt",
+        "an off-center side-profile close-up with a dramatic diagonal frame",
+        "a chest-up over-the-shoulder composition with a slight tilt",
+        "a dynamic close-up from below with foreground depth",
+        "a close portrait framed through a nearby environmental object at a diagonal angle",
+    )
+    scene_variation = random.choice(character.scene_variations)
+    expression = random.choice(expressions)
+    pose = random.choice(poses)
+    camera_angle = random.choice(camera_angles)
+
+    return (
+        f"Time and lighting: {time_of_day}. "
+        f"Setting seed: {scene_variation}. "
+        f"Expression: {expression}. Pose: {pose}. Camera: {camera_angle}. "
+        f"Trend-to-image requirement: visually interpret the current topic '{trend_word}' and its summary "
+        f"('{trend_summary}') through a relevant activity, prop, environmental detail, or symbolic motif. "
+        "The connection must be understandable from the image alone, without writing words or logos in the image. "
+        "Use a full, specific background rather than a plain studio backdrop."
+    )
+
+
 def make_character_content(
     openai_client: OpenAI,
     character: Character,
@@ -559,7 +619,7 @@ def make_character_content(
     trend_summary: str,
 ) -> tuple[str, str]:
     """GPT-5.6 Luna に投稿本文と英語の画像プロンプトを作らせる。"""
-    scene_variation = random.choice(character.scene_variations)
+    visual_brief = build_visual_brief(character, theme, trend_word, trend_summary)
     instructions = f"""
 あなたはAI VTuber「{character.name}」のSNS編集者です。
 キャラクター設定: {character.persona}
@@ -579,12 +639,17 @@ def make_character_content(
 Non-negotiable quality rules:
 - Let the character profile control the Japanese wording, emotional reaction, and point of view.
   Do not write a generic interchangeable influencer post.
+- Write as a person with independent tastes, curiosity, and a real point of view. Make a clear first-person
+  reaction to this particular topic: what she noticed, felt, wanted to try, or wanted to think about.
+  Do not merely announce that the topic is trending, and do not imitate the other character's voice.
 - Write the tweet body as short Japanese sentences (about 100 characters or fewer before hashtags),
   with one or two fitting emojis and one natural kaomoji. Put every completed sentence in its own paragraph, with one blank line
   after "。", "！", or "？". Never break a sentence in the middle just to make more lines.
 - Do not include hashtags in the body. Put one to three relevant hashtags only on a separate final line.
 - The image_prompt must be detailed English only and must describe this specific character's
   established personality, wardrobe, and mood rather than a generic anime girl.
+- It must integrate the time of day and a visual interpretation of this exact trend into the setting,
+  activity, prop, or background. Never use a generic unrelated background.
 - Keep image_prompt under 150 words and on one JSON string line.
 - It must specify a visible facial expression, eye direction, and a meaningful hand gesture or pose.
 - Avoid a centered, neutral, front-facing portrait. Give the character a distinctive emotional beat,
@@ -595,8 +660,8 @@ Non-negotiable quality rules:
 Character-specific visual direction (must be reflected in image_prompt):
 {character.visual_direction}
 
-Required scene variation for this post (must be reflected in image_prompt):
-{scene_variation}
+Required visual direction for this post (must be reflected in image_prompt):
+{visual_brief}
 """.strip()
 
     payload: dict[str, Any] | None = None
@@ -649,7 +714,7 @@ Required scene variation for this post (must be reflected in image_prompt):
         "white-background copy of the reference. Create a vertical 3:4 social-media illustration: a close-up "
         "portrait (head-and-shoulders or chest-up) with a clear, intentional Dutch-angle camera tilt. "
         "Make the facial expression, eye direction, and one meaningful hand gesture clearly visible. "
-        f"Required scene variation: {scene_variation}. "
+        f"Required visual direction: {visual_brief} "
         f"Character-specific visual direction: {character.visual_direction} "
         "Vary the setting, prop, camera distance, emotional beat, and pose from prior posts while preserving "
         "the same character-design and art-style identity. Avoid a neutral centered front-facing pose or a "
@@ -672,9 +737,9 @@ def generate_image(
 
     output_path = Path(tempfile.gettempdir()) / f"temp_{character.key}_{uuid.uuid4().hex}.png"
     try:
-        max_attempts = int(os.environ.get("IMAGE_GENERATION_MAX_ATTEMPTS", "3"))
+        max_attempts = int(os.environ.get("IMAGE_GENERATION_MAX_ATTEMPTS", "4"))
     except ValueError:
-        max_attempts = 3
+        max_attempts = 4
     max_attempts = max(1, min(max_attempts, 4))
 
     try:
